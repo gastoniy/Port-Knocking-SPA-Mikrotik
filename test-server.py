@@ -1,37 +1,24 @@
+import os
 import socket
-from scapy.all import sniff, Raw, UDP
+import logging
 
-IP_ADDR: str = "127.0.0.220"
-UDP_PORT: int = 62220
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 
-def run_server():
+SPA_PORT = int(os.environ.get("SPA_PORT", 62201))
+SPA_IFACE: str = "0.0.0.0" # Listen on all the containers' ports
+
+def run_server() -> None:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind((IP_ADDR, UDP_PORT))
+    sock.bind((SPA_IFACE, SPA_PORT))
+    logging.info(f"SPA started listening on {SPA_IFACE}:{SPA_PORT}/UDP")
 
     while True:
         data, addr = sock.recvfrom(1024)
         try:
-            print(f'{data}')
-
-            response = b"ACK: Data received!\n"
-            sock.sendto(response, addr)
+            payload = data.decode("utf-8")
+            logging.info(f"SPA server received a payload: {payload} from {addr[0]}")
         except Exception as e:
-            print(f"Error: {e}")
-
-def process_packet(packet):
-    if packet.haslayer(UDP) and packet.haslayer(Raw):
-        data = packet[Raw].load
-    
-    command = data.decode("utf-8")
-    src_ip = packet["IP"].src
-
-    print(command)
-
-    
-def run_server_scapy():
-    bpf_filter = f"udp dst port {UDP_PORT}"
-
-    sniff(iface="lo", filter=bpf_filter, prn=process_packet, store=0)
+            logging.error(f"SPA server returned unexpected error: {e}")
 
 if __name__ == "__main__":
-    run_server_scapy()
+    run_server()
