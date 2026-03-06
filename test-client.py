@@ -1,18 +1,28 @@
 import socket
 import sys
+from os import environ
+from nacl.public import PrivateKey, PublicKey, Box
 
 # if len(sys.argv) != ... # Finish while cryptography implementation
 
 server_ip = sys.argv[1]
 server_port = int(sys.argv[2])
-# secret_key = sys.argv[3]
+client_private_hex: str | None = environ.get("TEST_CLIENT_PRIVATE_KEY") # Getting as env var for tests purposes
+server_public_hex: str | None = environ.get("SERVER_PUBLIC_KEY") # In future will be given as args to script
+
+if not client_private_hex or not server_public_hex:
+    raise ValueError("Missing PyNaCl key environment variables.")
+
+client_priv = PrivateKey(bytes.fromhex(client_private_hex))
+server_pub = PublicKey(bytes.fromhex(server_public_hex))
+crypto_box = Box(client_priv, server_pub)
 
 command: bytes = b"Request for access via SPA"
 
 try:
-    token = command # Add cryptography in the next stage
+    encrypted_token = crypto_box.encrypt(command)
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.sendto(token, (server_ip, server_port))
+    sock.sendto(encrypted_token, (server_ip, server_port))
 
     print(f"SPA packet sent to {server_ip}:{server_port}")
 except Exception as e:
