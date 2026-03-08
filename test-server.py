@@ -2,6 +2,7 @@ import os
 import socket
 import logging
 from nacl.public import PrivateKey, PublicKey, Box
+import time
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 
@@ -9,6 +10,7 @@ SERVER_PRIVATE_KEY_HEX = os.environ.get("SERVER_PRIVATE_KEY")
 CLIENT_PUBLIC_KEY_HEX = os.environ.get("TEST_CLIENT_PUBLIC_KEY")
 SPA_PORT = int(os.environ.get("SPA_PORT", 62201))
 SPA_IFACE: str = "0.0.0.0" # Listen on all the containers' ports
+MAX_AGE_SEC = int(os.environ.get("SPA_AGE", 10))
 
 if not SERVER_PRIVATE_KEY_HEX or not CLIENT_PUBLIC_KEY_HEX:
     raise ValueError("Missing PyNaCl key environment variables.")
@@ -28,6 +30,14 @@ def run_server() -> None:
         try:
             decrypted = crypto_box.decrypt(data)
             payload = decrypted.decode("utf-8")
+
+            command, timestamp_str = payload.split('|')
+            packet_time = float(timestamp_str)
+            current_time = time.time()
+            
+            if abs(current_time - packet_time) > MAX_AGE_SEC:
+                logging.warning(f"REPLAY DETECTED from {addr[0]}. Dropping.")
+                continue
             
             logging.info(f"SPA server received a payload: {payload} from {addr[0]}")
         except Exception as e:
