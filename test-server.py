@@ -34,8 +34,11 @@ def run_server() -> None:
             command, timestamp_str = payload.split('|')
             packet_time = float(timestamp_str)
             current_time = time.time()
-            
-            if abs(current_time - packet_time) > MAX_AGE_SEC:
+
+            delta = abs(current_time - packet_time)
+            # logging.info(f"DEBUG: Packet time: {packet_time}, Server time: {current_time}, Delta: {delta}s")
+
+            if delta > MAX_AGE_SEC:
                 logging.warning(f"REPLAY DETECTED from {addr[0]}. Dropping.")
                 continue
             
