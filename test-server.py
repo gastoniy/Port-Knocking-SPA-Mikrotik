@@ -5,6 +5,7 @@ from nacl.public import PrivateKey, PublicKey, Box
 from nacl.exceptions import CryptoError
 import yaml
 import time
+import requests
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 
@@ -12,6 +13,11 @@ DATA_DIR = os.environ.get("SPA_DATA_DIR", "/app/data")  # Container Mount with r
 SPA_PORT = int(os.environ.get("SPA_PORT", 62201))
 SPA_IFACE = "0.0.0.0"
 MAX_AGE_SEC = int(os.environ.get("SPA_AGE", 10))
+ROUTER_IP = os.environ.get("ROUTER_IP", "172.17.0.1")
+ROUTER_USER: str = os.environ.get("ROUTER_USER", "")  # Will be changed
+ROUTER_PASS: str = os.environ.get("ROUTER_PASS", "")
+LIST_NAME = os.environ.get("SPA_LIST_NAME", "SPA_Auth")
+OPEN_TIMEOUT = os.environ.get("SPA_OPEN_TIMEOUT", "00:05:00")   # Close the firewall pinhole after 5 minutes
 
 def load_server_key() -> PrivateKey:
     '''
@@ -37,6 +43,30 @@ def load_clients() -> dict[str, dict[str, str]] | dict:    # Where str-key can b
     except FileNotFoundError:
         logging.error("clients.yaml not found! Empty dict is returned!")
         return {}
+
+def add_ip_to_firewall(ip_address: str) -> None:
+    url = f"https://{ROUTER_IP}/rest/ip/firewall/address-list"
+    payload = {
+        "list": LIST_NAME,
+        "address": ip_address,
+        "timeout": OPEN_TIMEOUT,
+    }
+
+    try:
+        response = requests.put(
+            url,
+            json=payload,
+            auth=(ROUTER_USER, ROUTER_PASS),
+            verify=False,
+            timeout=5
+        )
+
+        if response.status_code in (200, 201):
+            logging.info(f"Added {ip_address} to '{LIST_NAME}' for {OPEN_TIMEOUT}")
+        else:
+            logging.error(f"Router responded with {response.status_code} - {response.text}")
+    except requests.exceptions.RequestException as e:
+        logging.error(f"API Connection failed: {e}")
 
 
 def run_server() -> None:
@@ -70,8 +100,7 @@ def run_server() -> None:
                     logging.warning(f"REPLAY DETECTED from {addr[0]}. Dropping.")
                     break   # Stop checking other keys because replay attack was detected
                 
-                logging.info(f"SPA server received a payload: {payload} from {client_name} on {addr[0]}")
-
+                logging.info(f"SPA server received a command: {command} from {client_name} on {addr[0]}")
                 break   # Stop checking other keys since match was found 
 
             except CryptoError:
@@ -89,6 +118,9 @@ def run_server() -> None:
 
         if not authorized:
             logging.warning(f"Unauthorized or unreadable SPA packet from {addr[0]}")
+
+        add_ip_to_firewall(addr[0])
+
 
 if __name__ == "__main__":
     run_server()
