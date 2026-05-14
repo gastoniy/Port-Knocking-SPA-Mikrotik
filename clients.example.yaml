@@ -1,0 +1,7 @@
+clients:
+  client1:
+    public-key: "KeyInHex"
+    comment: "Comment for Client1"
+  client2:
+    public-key: "KeyInHex"
+    comment: "Comment for Client2"
