@@ -47,7 +47,7 @@ def load_server_key() -> PrivateKey:
         with open(f"{DATA_DIR}/server_private.key", "r") as f:
             return(PrivateKey(bytes.fromhex(f.read().strip())))
     except FileNotFoundError:
-        logging.error("server_private.key not found!")
+        logging.critical("server_private.key not found!")
         exit(1)
 
 def load_clients() -> dict[str, dict[str, str]] | dict:    # Where str-key can be public key or comment
@@ -60,7 +60,7 @@ def load_clients() -> dict[str, dict[str, str]] | dict:    # Where str-key can b
             config = yaml.safe_load(f)
             return config.get("clients", {})    # Return clients dict or empty dict
     except FileNotFoundError:
-        logging.error("clients.yaml not found! Empty dict is returned!")
+        logging.critical("clients.yaml not found! Empty dict is returned!")
         return {}
 
 def add_ip_to_firewall(ip_address: str) -> None:
@@ -95,6 +95,7 @@ def run_server() -> None:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((SPA_IFACE, SPA_PORT))
     logging.info(f"SPA started listening on {SPA_IFACE}:{SPA_PORT}/UDP")
+    logging.info(f"Using {DATA_DIR}/{CONFIG_NAME} as configuration file")
 
     while True:
         data, addr = sock.recvfrom(1024)
