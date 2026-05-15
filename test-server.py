@@ -10,14 +10,33 @@ import requests
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 
 DATA_DIR = os.environ.get("SPA_DATA_DIR", "/app/data")  # Container Mount with required files
-SPA_PORT = int(os.environ.get("SPA_PORT", 62201))
-SPA_IFACE = "0.0.0.0"
-MAX_AGE_SEC = int(os.environ.get("SPA_AGE", 10))
-ROUTER_IP = os.environ.get("ROUTER_IP", "172.17.0.1")
-ROUTER_USER: str = os.environ.get("ROUTER_USER", "")  # Will be changed
-ROUTER_PASS: str = os.environ.get("ROUTER_PASS", "")
-LIST_NAME = os.environ.get("SPA_LIST_NAME", "SPA_Auth")
-OPEN_TIMEOUT = os.environ.get("SPA_OPEN_TIMEOUT", "00:05:00")   # Close the firewall pinhole after 5 minutes
+CONFIG_NAME = os.environ.get("SPA_CONFIG_FILE", "config.yaml")
+
+def load_config() -> dict:
+    '''
+    Load configuration from .yaml file (check config.example.yaml)
+    Raise an error if configuration file is not found
+    '''
+    config_path = f"{DATA_DIR}/{CONFIG_NAME}"
+    try:
+        with open(config_path, "r") as f:
+            return yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        logging.critical(f"Master configuration file not found at {config_path}!")
+        exit(1)
+
+APP_CONFIG = load_config()
+
+SPA_PORT = int(APP_CONFIG.get("server", {}).get("port", 62201))
+SPA_IFACE = APP_CONFIG.get("server", {}).get("interface", "0.0.0.0")
+MAX_AGE_SEC = int(APP_CONFIG.get("server", {}).get("max_age_sec", 10))
+
+ROUTER_IP = APP_CONFIG.get("router", {}).get("ip", "172.17.0.1")
+ROUTER_USER = APP_CONFIG.get("router", {}).get("user", "")
+ROUTER_PASS = APP_CONFIG.get("router", {}).get("password", "")
+
+LIST_NAME = APP_CONFIG.get("firewall", {}).get("list_name", "SPA_Auth")
+OPEN_TIMEOUT = APP_CONFIG.get("firewall", {}).get("open_timeout", "00:05:00")
 
 def load_server_key() -> PrivateKey:
     '''

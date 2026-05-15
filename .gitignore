@@ -206,3 +206,8 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Server setting and local configurations
+clients.yaml
+config.yaml
+server_private.key
