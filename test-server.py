@@ -1,3 +1,5 @@
+import signal
+import sys
 import os
 import socket
 import logging
@@ -102,48 +104,64 @@ def run_server() -> None:
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((SPA_IFACE, SPA_PORT))
+
+    def shutdown_handler(signum, frame):
+        signal_name = signal.Signals(signum).name
+        logging.info(f"Caught {signal_name}. Shutting down SPA server gracefully...")
+        sock.close()
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, shutdown_handler)
+    signal.signal(signal.SIGINT, shutdown_handler)
+
     logging.info(f"SPA started listening on {SPA_IFACE}:{SPA_PORT}/UDP")
     logging.info(f"Using {DATA_DIR}/{CONFIG_NAME} as configuration file")
 
     while True:
-        data, addr = sock.recvfrom(1024)
-        authorized = False
+        try:
+            data, addr = sock.recvfrom(1024)
+            authorized = False
 
-        for client_name, crypto_box in valid_boxes.items():
-            try:
-                decrypted = crypto_box.decrypt(data)
-                payload = decrypted.decode("utf-8")
-                
-                # If it reach here, the cryptography passed. It is a known client.
-                authorized = True
-
+            for client_name, crypto_box in valid_boxes.items():
                 try:
-                    command, timestamp_str = payload.split('|', 1)
-                    packet_time = float(timestamp_str)
-                except ValueError:
-                    logging.warning(f"Malformed payload from '{client_name}' at {addr[0]}: {payload}")
-                    break # Stop checking; crypto matched but payload is invalid
+                    decrypted = crypto_box.decrypt(data)
+                    payload = decrypted.decode("utf-8")
+                    
+                    # If it reach here, the cryptography passed. It is a known client.
+                    authorized = True
 
-                if abs(time.time() - packet_time) > MAX_AGE_SEC:
-                    logging.warning(f"REPLAY DETECTED from '{client_name}' at {addr[0]}. Dropping.")
-                    break # Stop checking; crypto matched but packet is too old - replay attack/network problems?
+                    try:
+                        command, timestamp_str = payload.split('|', 1)
+                        packet_time = float(timestamp_str)
+                    except ValueError:
+                        logging.warning(f"Malformed payload from '{client_name}' at {addr[0]}: {payload}")
+                        break # Stop checking; crypto matched but payload is invalid
+
+                    if abs(time.time() - packet_time) > MAX_AGE_SEC:
+                        logging.warning(f"REPLAY DETECTED from '{client_name}' at {addr[0]}. Dropping.")
+                        break # Stop checking; crypto matched but packet is too old - replay attack/network problems?
+                    
+                    logging.info(f"SPA server received command: '{command}' from '{client_name}' on {addr[0]}")
+                    
+                    # Only execute if crypto is valid, payload is valid, and it's not a replay.
+                    add_ip_to_firewall(addr[0])
+                    break 
+
+                except CryptoError:
+                    # Normal behavior: The packet wasn't meant for this client's key.
+                    continue
+                except Exception as e:
+                    logging.error(f"Unexpected error processing packet from {addr[0]}: {e}")
+                    continue
+
+            if not authorized:
+                # This only triggers if the packet couldn't be decrypted by ANY known key
+                logging.warning(f"Unauthorized or unreadable SPA packet from {addr[0]}")
                 
-                logging.info(f"SPA server received command: '{command}' from '{client_name}' on {addr[0]}")
-                
-                # Only execute if crypto is valid, payload is valid, and it's not a replay.
-                add_ip_to_firewall(addr[0])
-                break 
-
-            except CryptoError:
-                # Normal behavior: The packet wasn't meant for this client's key.
-                continue
-            except Exception as e:
-                logging.error(f"Unexpected error processing packet from {addr[0]}: {e}")
-                continue
-
-        if not authorized:
-            # This only triggers if the packet couldn't be decrypted by ANY known key
-            logging.warning(f"Unauthorized or unreadable SPA packet from {addr[0]}")
+        except OSError as e:
+            if getattr(e, "errno", None) == 9:
+                break
+            logging.error(f"Socket Error: {e}")
 
 if __name__ == "__main__":
     run_server()
