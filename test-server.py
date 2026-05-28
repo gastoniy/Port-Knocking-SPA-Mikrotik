@@ -92,6 +92,14 @@ def run_server() -> None:
     server_priv = load_server_key()
     clients_dict = load_clients()
 
+    valid_boxes = {}
+    for client_name, client_items in clients_dict.items():
+        try:
+            client_pub = PublicKey(bytes.fromhex(client_items.get("public-key", "")))
+            valid_boxes[client_name] = Box(server_priv, client_pub)
+        except ValueError as ve:
+            logging.error(f"Failed to load key for '{client_name}' (Bad Hex format?): {ve}")
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((SPA_IFACE, SPA_PORT))
     logging.info(f"SPA started listening on {SPA_IFACE}:{SPA_PORT}/UDP")
@@ -99,48 +107,43 @@ def run_server() -> None:
 
     while True:
         data, addr = sock.recvfrom(1024)
-
-        # Try to decrypt the packet with each authorized client's public key until one succeeds
         authorized = False
 
-        for client_name, client_items in clients_dict.items():
+        for client_name, crypto_box in valid_boxes.items():
             try:
-                client_pub = PublicKey(bytes.fromhex(client_items.get("public-key", "")))
-                crypto_box = Box(server_priv, client_pub)
-
                 decrypted = crypto_box.decrypt(data)
                 payload = decrypted.decode("utf-8")
-
+                
+                # If it reach here, the cryptography passed. It is a known client.
                 authorized = True
-                command, timestamp_str = payload.split('|')
 
-                packet_time = float(timestamp_str)
+                try:
+                    command, timestamp_str = payload.split('|', 1)
+                    packet_time = float(timestamp_str)
+                except ValueError:
+                    logging.warning(f"Malformed payload from '{client_name}' at {addr[0]}: {payload}")
+                    break # Stop checking; crypto matched but payload is invalid
 
                 if abs(time.time() - packet_time) > MAX_AGE_SEC:
-                    logging.warning(f"REPLAY DETECTED from {addr[0]}. Dropping.")
-                    break   # Stop checking other keys because replay attack was detected
+                    logging.warning(f"REPLAY DETECTED from '{client_name}' at {addr[0]}. Dropping.")
+                    break # Stop checking; crypto matched but packet is too old - replay attack/network problems?
                 
-                logging.info(f"SPA server received a command: {command} from {client_name} on {addr[0]}")
-                break   # Stop checking other keys since match was found 
+                logging.info(f"SPA server received command: '{command}' from '{client_name}' on {addr[0]}")
+                
+                # Only execute if crypto is valid, payload is valid, and it's not a replay.
+                add_ip_to_firewall(addr[0])
+                break 
 
             except CryptoError:
-                # The packet could not be decrypted with this specific client's key - normal behavior
+                # Normal behavior: The packet wasn't meant for this client's key.
                 continue
-            
-            except ValueError as ve:
-                # This happens if the YAML has a bad hex string that can't be converted.
-                logging.error(f"Failed to load key for '{client_name}' (Bad Hex format?): {ve}")
-                continue
-
             except Exception as e:
-                logging.error(f"SPA server returned unexpected error: {e}")
+                logging.error(f"Unexpected error processing packet from {addr[0]}: {e}")
                 continue
 
         if not authorized:
+            # This only triggers if the packet couldn't be decrypted by ANY known key
             logging.warning(f"Unauthorized or unreadable SPA packet from {addr[0]}")
-
-        add_ip_to_firewall(addr[0])
-
 
 if __name__ == "__main__":
     run_server()
