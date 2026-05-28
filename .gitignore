@@ -210,4 +210,5 @@ __marimo__/
 # Server setting and local configurations
 clients.yaml
 config.yaml
+client-config.yaml
 server_private.key
